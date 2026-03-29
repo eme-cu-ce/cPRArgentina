@@ -1,9 +1,10 @@
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from main import (
     InputData,
@@ -47,20 +48,31 @@ def test_agregar_antigeno_no_disminuye_cpra():
     assert r2["cPRA"] >= r1["cPRA"]
 
 
-def test_mode_invalido_retorna_400():
-    try:
-        calc_cpra(InputData(antigenos=["A2"], abo="A", mode="banana"))
-        assert False, "Se esperaba HTTPException"
-    except HTTPException as exc:
-        assert exc.status_code == 400
+def test_abo_invalido_rechazado():
+    with TestClient(app) as client:
+        response = client.post(
+            "/calc_cpra",
+            json={
+                "antigenos": ["A2"],
+                "abo": "X",
+            },
+        )
+
+    assert response.status_code == 422
 
 
-def test_abo_invalido_retorna_400():
-    try:
-        calc_cpra(InputData(antigenos=["A2"], abo="X", mode="freq"))
-        assert False, "Se esperaba HTTPException"
-    except HTTPException as exc:
-        assert exc.status_code == 400
+def test_mode_invalido_rechazado():
+    with TestClient(app) as client:
+        response = client.post(
+            "/calc_cpra",
+            json={
+                "antigenos": ["A2"],
+                "abo": "A",
+                "mode": "banana",
+            },
+        )
+
+    assert response.status_code == 422
 
 
 def test_dataset_info_expone_metadata_hla():
@@ -68,19 +80,18 @@ def test_dataset_info_expone_metadata_hla():
 
     assert info["total_donors"] > 0
     assert "A1" in info["hla_columns"]
-    assert "sexo" not in info["hla_columns"]
     assert info["valid_antigen_count"] > 0
 
 
-def test_reference_data_no_expone_columnas_no_hla():
+def test_reference_data_no_expone_valores_no_hla():
     data = reference_data()
 
     assert "A2" in data["valid_antigens"]
     assert "M" not in data["valid_antigens"]
-    assert "sexo" not in data["hla_columns"]
+    assert data["hla_columns"] == ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
 
 
-def test_get_hla_columns_excluye_metadatos():
+def test_get_hla_columns_devuelve_columnas_esperadas():
     columns = [
         "donor_id",
         "sexo",

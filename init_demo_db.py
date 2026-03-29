@@ -64,4 +64,5 @@ INSERT INTO donors VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 conn.commit()
 conn.close()
 
-print("✅ cpra_demo.db created successfully with 25 synthetic donors.")
+# Keep this ASCII-only to avoid Windows cp1252 console encoding issues.
+print("cpra_demo.db created successfully with 25 synthetic donors.")
