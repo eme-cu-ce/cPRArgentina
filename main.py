@@ -17,6 +17,7 @@ DB_NAME = os.getenv("CPRA_DB", "cpra_demo.db")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, DB_NAME)
 FRONTEND_PATH = os.path.join(BASE_DIR, "frontend", "index.html")
+VALIDATION_TABLE_PATH = os.path.join(BASE_DIR, "data", "hla_validation.csv")
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CPRA_CORS_ORIGINS", "*").split(",")
@@ -58,6 +59,22 @@ def get_hla_columns(columns: list[str]) -> list[str]:
     return [col for col in HLA_COLS if col in columns]
 
 
+def load_supported_antigens(validation_table_path: str = VALIDATION_TABLE_PATH) -> set[str]:
+    df_validation = pd.read_csv(validation_table_path, dtype=str).fillna("")
+    if "antigen" not in df_validation.columns:
+        raise ValueError("La tabla de validacion HLA debe incluir la columna 'antigen'.")
+
+    return {
+        antigen.strip().upper()
+        for antigen in df_validation["antigen"].tolist()
+        if antigen.strip()
+    }
+
+
+def is_supported_antigen(antigen: str, supported_antigens: set[str]) -> bool:
+    return antigen in supported_antigens
+
+
 # =========================
 # Funcion reutilizable de carga
 # =========================
@@ -65,6 +82,8 @@ def load_data_from_db(app: FastAPI):
     """Cargar datos desde SQLite y actualizar app.state."""
     if DB_NAME == "cpra_demo.db" and not os.path.exists(DB_PATH):
         create_demo_db(DB_PATH)
+
+    supported_antigens = load_supported_antigens()
 
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(DONORS_TABLE_SQL)
@@ -78,15 +97,16 @@ def load_data_from_db(app: FastAPI):
 
     frecuencias_local = df_local["abo"].value_counts(normalize=True).to_dict()
     columnas_hla = get_hla_columns(df_local.columns.tolist())
-    antigens_validos = {
+    antigens_observados = {
         antigen
         for antigen in df_local[columnas_hla].stack().dropna().unique()
-        if antigen
+        if antigen and antigen != "-"
     }
 
     app.state.df = df_local
     app.state.frecuencias_abo = frecuencias_local
-    app.state.valid_antigens = antigens_validos
+    app.state.observed_antigens = antigens_observados
+    app.state.supported_antigens = supported_antigens
     app.state.hla_columns = columnas_hla
     app.state.last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     app.state.total_donors = len(df_local)
@@ -134,7 +154,7 @@ class InputData(BaseModel):
 def calc_cpra(data: InputData):
     df_local: pd.DataFrame = getattr(app.state, "df", pd.DataFrame())
     frecuencias_local = getattr(app.state, "frecuencias_abo", {})
-    valid_antigens = getattr(app.state, "valid_antigens", set())
+    supported_antigens = getattr(app.state, "supported_antigens", set())
     columnas_hla = getattr(app.state, "hla_columns", [])
 
     if df_local.empty:
@@ -156,7 +176,7 @@ def calc_cpra(data: InputData):
             detail="Debe enviar al menos un antigeno.",
         )
 
-    invalid = [a for a in antigenos if a not in valid_antigens]
+    invalid = [a for a in antigenos if not is_supported_antigen(a, supported_antigens)]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Antigenos invalidos: {invalid}")
 
@@ -209,17 +229,24 @@ def dataset_info():
         "last_update": getattr(app.state, "last_update", "N/A"),
         "db_path": getattr(app.state, "db_path", DB_PATH),
         "hla_columns": getattr(app.state, "hla_columns", []),
-        "valid_antigen_count": len(getattr(app.state, "valid_antigens", set())),
+        "valid_antigen_count": len(getattr(app.state, "observed_antigens", set())),
+        "supported_antigen_count": len(getattr(app.state, "supported_antigens", set())),
     }
 
 
 @app.get("/reference_data")
 def reference_data():
+    observed_antigens = getattr(app.state, "observed_antigens", set())
+    supported_antigens = getattr(app.state, "supported_antigens", set())
     return {
         "hla_columns": getattr(app.state, "hla_columns", []),
-        "valid_antigens": sorted(getattr(app.state, "valid_antigens", set())),
+        "observed_antigens": sorted(observed_antigens),
+        "observed_antigen_count": len(observed_antigens),
+        "supported_antigens": sorted(supported_antigens),
+        "supported_antigen_count": len(supported_antigens),
         "abo_groups": sorted(VALID_ABO_GROUPS),
         "modes": sorted(VALID_MODES),
+        "validation_rule": "Validated against data/hla_validation.csv",
     }
 
 

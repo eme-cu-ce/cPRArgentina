@@ -8,16 +8,17 @@ This project is a small FastAPI web app with a built-in HTML frontend. A user ca
 
 - Prototype for research and validation
 - Not intended for direct clinical decision-making
-- Supports demo and real SQLite datasets
+- Uses a real or demo SQLite dataset
 - Includes two calculation modes: `freq` and `filter`
+- Validates antigens against `data/hla_validation.csv`
 
 ## Main endpoints
 
 - `GET /` serves the frontend
 - `POST /calc_cpra` calculates cPRA
 - `GET /dataset_info` returns dataset metadata
-- `GET /reference_data` returns valid HLA antigens and supported options
-- `GET /health` returns a simple service health response
+- `GET /reference_data` returns observed and supported HLA antigens
+- `GET /health` returns a simple health response
 - `POST /reload_db` reloads the database into memory
 
 ## Local run
@@ -44,10 +45,13 @@ http://127.0.0.1:8000
 
 By default, the app uses `cpra_demo.db`.
 
-To use another SQLite file, set:
+To use the real SQLite file:
 
-```bash
-CPRA_DB=cpra.db
+On Windows `cmd`:
+
+```cmd
+set CPRA_DB=cpra.db
+uvicorn main:app --reload
 ```
 
 On Windows PowerShell:
@@ -62,13 +66,6 @@ uvicorn main:app --reload
 - `CPRA_DB`: SQLite database filename or path
 - `CPRA_CORS_ORIGINS`: comma-separated allowed origins, default `*`
 
-Example:
-
-```text
-CPRA_DB=cpra_demo.db
-CPRA_CORS_ORIGINS=https://tu-dominio.onrender.com
-```
-
 ## Demo dataset
 
 You can recreate the synthetic demo database with:
@@ -77,42 +74,54 @@ You can recreate the synthetic demo database with:
 python init_demo_db.py
 ```
 
-If `cpra_demo.db` is missing at startup, the app now recreates it automatically.
+If `cpra_demo.db` is missing at startup, the app recreates it automatically.
 
-## Deploy-ready notes
+## Donor loading
 
-This repo is prepared for simple deployment:
+Use `load_donors.py` to load a donor CSV into `cpra.db`.
 
-- `Dockerfile` included
-- health endpoint included
-- frontend served by FastAPI itself
-- SQLite database kept outside Git
+Incremental load:
 
-Important:
+```bash
+python load_donors.py --csv "C:\path\to\donors.csv" --mode append
+```
 
-- Do not commit the real donor database
-- For a prototype, SQLite is acceptable if you run a single small web service
-- For production-grade scale or stricter reliability, a more robust database setup would be better
+This adds only new `donor_id` values and ignores duplicates already present in the database.
 
-## Suggested deployment flow
+Full rebuild:
 
-1. Deploy using `cpra_demo.db`
-2. Confirm the public site loads and calculates correctly
-3. Upload or mount the real SQLite database on the server
-4. Point `CPRA_DB` to the real file
-5. Restrict `CPRA_CORS_ORIGINS` to the final public URL
+```bash
+python load_donors.py --csv "C:\path\to\donors.csv" --mode rebuild
+```
 
-## Render quick start
+This recreates `cpra.db` from the CSV and stores a timestamped `.bak` backup first.
 
-This repo includes `render.yaml` for a simple first deployment on Render.
+## Validation source
 
-Expected settings:
+The list of accepted HLA antigens is stored in:
 
-- Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Default demo DB: generated automatically if missing
+- `data/hla_validation.csv`
 
-For the first public prototype, deploy with the demo DB and only switch to the real dataset after the site is stable.
+This validation catalog is separate from the donor database. An antigen can be valid even if it does not appear in the currently loaded donor dataset.
+
+## PythonAnywhere direction
+
+This repo is being prepared for an initial deployment on PythonAnywhere with a real SQLite database.
+
+Practical model:
+
+- code in GitHub
+- real `cpra.db` uploaded to the PythonAnywhere account
+- app configured to point to that database file
+
+## Keep out of Git
+
+Do not commit:
+
+- the real donor SQLite database
+- donor CSV files with real data
+- backups such as `.bak`
+- generated caches such as `__pycache__` or `.pytest_cache`
 
 ## Pre-deploy checklist
 
@@ -121,7 +130,7 @@ For the first public prototype, deploy with the demo DB and only switch to the r
 - Frontend loads at `/`
 - A valid cPRA example returns a result
 - Invalid antigen input returns a readable error
-- Demo dataset metadata appears in the interface
+- Real database metadata appears in the interface
 - Disclaimer is visible in the UI
 
 ## Disclaimer

@@ -12,6 +12,8 @@ from main import (
     calc_cpra,
     dataset_info,
     get_hla_columns,
+    is_supported_antigen,
+    load_supported_antigens,
     load_data_from_db,
     reference_data,
 )
@@ -89,14 +91,18 @@ def test_dataset_info_expone_metadata_hla():
     assert info["total_donors"] > 0
     assert "A1" in info["hla_columns"]
     assert info["valid_antigen_count"] > 0
+    assert info["supported_antigen_count"] > 0
 
 
 def test_reference_data_no_expone_valores_no_hla():
     data = reference_data()
 
-    assert "A2" in data["valid_antigens"]
-    assert "M" not in data["valid_antigens"]
+    assert "A2" in data["observed_antigens"]
+    assert "M" not in data["observed_antigens"]
+    assert "-" not in data["observed_antigens"]
+    assert "B76" in data["supported_antigens"]
     assert data["hla_columns"] == ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
+    assert "hla_validation.csv" in data["validation_rule"]
 
 
 def test_get_hla_columns_devuelve_columnas_esperadas():
@@ -114,3 +120,18 @@ def test_get_hla_columns_devuelve_columnas_esperadas():
     ]
 
     assert get_hla_columns(columns) == ["A1", "A2", "B1", "DQB1_1"]
+
+
+def test_antigeno_valido_aunque_no_aparezca_en_la_base():
+    supported_antigens = load_supported_antigens()
+    assert is_supported_antigen("B76", supported_antigens)
+    response = calc_cpra(InputData(antigenos=["B76"], abo="A"))
+    assert "cPRA" in response
+
+
+def test_antigeno_con_formato_invalido_se_rechaza():
+    try:
+        calc_cpra(InputData(antigenos=["BANANA"], abo="A"))
+        assert False, "Se esperaba HTTPException"
+    except HTTPException as exc:
+        assert exc.status_code == 400
