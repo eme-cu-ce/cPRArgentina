@@ -1,0 +1,190 @@
+CPRARGENTINA - PYTHONANYWHERE RUNBOOK
+
+1. Estado actual del deploy
+
+- Dominio publico:
+  https://cprargentina.pythonanywhere.com
+
+- Proyecto en PythonAnywhere:
+  /home/cprargentina/cPRArgentina
+
+- Base de datos real:
+  /home/cprargentina/cPRArgentina/cpra.db
+
+- Archivo ASGI usado para forzar la base real:
+  /home/cprargentina/cPRArgentina/asgi.py
+
+- Virtualenv:
+  /home/cprargentina/.virtualenvs/cpra-venv
+
+- Comando ASGI usado al crear la web:
+  /home/cprargentina/.virtualenvs/cpra-venv/bin/uvicorn --app-dir /home/cprargentina/cPRArgentina --uds ${DOMAIN_SOCKET} asgi:app
+
+
+2. Archivos importantes del proyecto
+
+- main.py
+  App principal FastAPI.
+
+- frontend/index.html
+  Interfaz de usuario.
+
+- load_donors.py
+  Carga incremental o reconstruccion de la base desde un CSV.
+
+- data/hla_validation.csv
+  Tabla oficial de validacion de antigenos.
+
+- cpra.db
+  Base real usada por la app en produccion.
+
+- asgi.py
+  Adaptador para PythonAnywhere que fija CPRA_DB=cpra.db antes de importar la app.
+
+
+3. Chequeo rapido de salud
+
+Abrir:
+https://cprargentina.pythonanywhere.com/health
+
+Resultado esperado:
+- status = ok
+- database = cpra.db
+- total_donors = 211
+
+
+4. Como entrar a PythonAnywhere
+
+1. Ir a https://www.pythonanywhere.com/
+2. Loguearse
+3. Usar:
+   - Web: para recargar la app y ver logs
+   - Files: para subir archivos
+   - Consoles: para correr comandos
+
+
+5. Como abrir una consola y entrar al proyecto
+
+En PythonAnywhere:
+1. Consoles
+2. Start a new Bash console
+3. Correr:
+
+   workon cpra-venv
+   cd ~/cPRArgentina
+
+
+6. Como actualizar el codigo desde GitHub
+
+En la Bash console:
+
+   workon cpra-venv
+   cd ~/cPRArgentina
+   git pull origin main
+
+Despues:
+1. Ir a la pestaña Web
+2. Click en Reload
+
+
+7. Como actualizar la base real desde un CSV
+
+Si tenes un CSV nuevo:
+1. Subirlo desde la pestaña Files a PythonAnywhere
+2. Anotar su ruta completa
+
+Ejemplo:
+   /home/cprargentina/uploads/donors_nuevo.csv
+
+En la Bash console:
+
+   workon cpra-venv
+   cd ~/cPRArgentina
+   python load_donors.py --csv "/home/cprargentina/uploads/donors_nuevo.csv" --mode append --db cpra.db
+
+Eso hace:
+- agrega solo donor_id nuevos
+- ignora donor_id ya existentes
+
+Si alguna vez queres reconstruir toda la base desde cero:
+
+   python load_donors.py --csv "/home/cprargentina/uploads/donors_nuevo.csv" --mode rebuild --db cpra.db
+
+Eso hace:
+- backup de la base previa
+- borra la base anterior
+- recrea cpra.db desde el CSV
+
+Despues de cualquier carga:
+1. Ir a Web
+2. Click en Reload
+3. Probar /health
+
+
+8. Como verificar que la base quedo bien
+
+1. Abrir:
+   https://cprargentina.pythonanywhere.com/health
+
+2. Confirmar:
+   - database = cpra.db
+   - total_donors = numero esperado
+
+3. Abrir la home y probar:
+   - un antigeno valido
+   - B76
+   - un antigeno invalido
+
+
+9. Logs utiles si algo falla
+
+En PythonAnywhere, pestaña Web:
+- Error log
+- Server log
+
+Si la home no carga o da error:
+1. revisar Error log
+2. revisar Server log
+3. probar /health
+
+
+10. Problemas tipicos
+
+- Problema:
+  /health muestra cpra_demo.db
+  Solucion:
+  revisar que asgi.py exista y que siga fijando CPRA_DB=cpra.db
+
+- Problema:
+  total_donors no cambio despues de subir CSV
+  Solucion:
+  correr load_donors.py y despues hacer Reload en Web
+
+- Problema:
+  antigeno valido no reconocido
+  Solucion:
+  revisar data/hla_validation.csv y confirmar que este incluido
+
+- Problema:
+  codigo actualizado pero la web sigue igual
+  Solucion:
+  hacer git pull en PythonAnywhere y despues Reload
+
+
+11. Seguridad basica
+
+- No pegar API tokens en chats o mails
+- Si un token se expone, regenerarlo
+- No subir la base real a GitHub
+- No subir CSVs reales al repo
+
+
+12. Regla practica para no romper nada
+
+Orden recomendado cuando haya cambios:
+1. actualizar codigo en GitHub
+2. git pull en PythonAnywhere
+3. si hay cambios de datos, cargar CSV a cpra.db
+4. Reload en la pestaña Web
+5. probar /health
+6. probar la home
