@@ -114,6 +114,53 @@ def normalize_hla_columns(df_local: pd.DataFrame, columnas_hla: list[str]) -> pd
     return df_local
 
 
+def build_hla_alerts(
+    df_raw: pd.DataFrame,
+    df_normalized: pd.DataFrame,
+    columnas_hla: list[str],
+    supported_antigens: set[str],
+) -> dict:
+    total_hla_values = 0
+    normalized_value_count = 0
+
+    for column in columnas_hla:
+        raw_series = df_raw[column].fillna("").astype(str).str.strip().str.upper()
+        normalized_series = df_normalized[column].fillna("").astype(str).str.strip().str.upper()
+
+        comparable_mask = raw_series.ne("") & raw_series.ne("-") & raw_series.ne("NAN") & raw_series.ne("NONE")
+        total_hla_values += int(comparable_mask.sum())
+        normalized_value_count += int((raw_series[comparable_mask] != normalized_series[comparable_mask]).sum())
+
+    observed_antigens = {
+        antigen
+        for antigen in df_normalized[columnas_hla].stack().dropna().unique()
+        if antigen and antigen != "-"
+    }
+    unsupported_observed_antigens = sorted(observed_antigens - supported_antigens)
+    normalized_ratio = (normalized_value_count / total_hla_values) if total_hla_values else 0.0
+
+    warnings = []
+    if normalized_value_count:
+        warnings.append(
+            f"Se normalizaron {normalized_value_count} valores HLA al cargar la base "
+            f"({normalized_ratio:.1%} de las celdas HLA con dato)."
+        )
+    if unsupported_observed_antigens:
+        sample = ", ".join(unsupported_observed_antigens[:10])
+        warnings.append(
+            "Se detectaron antigenos observados fuera de la tabla de validacion HLA: "
+            f"{sample}"
+        )
+
+    return {
+        "warnings": warnings,
+        "normalized_value_count": normalized_value_count,
+        "total_hla_values": total_hla_values,
+        "normalized_value_ratio": round(normalized_ratio, 4),
+        "unsupported_observed_antigens": unsupported_observed_antigens,
+    }
+
+
 # =========================
 # Funcion reutilizable de carga
 # =========================
@@ -131,12 +178,15 @@ def load_data_from_db(app: FastAPI):
     for col in df_local.columns:
         df_local[col] = df_local[col].astype(str).str.strip().str.upper()
 
+    df_raw_hla = df_local.copy()
+
     if "abo" in df_local.columns:
         df_local["abo"] = df_local["abo"].replace({"0": "O"})
 
     frecuencias_local = df_local["abo"].value_counts(normalize=True).to_dict()
     columnas_hla = get_hla_columns(df_local.columns.tolist())
     df_local = normalize_hla_columns(df_local, columnas_hla)
+    hla_alerts = build_hla_alerts(df_raw_hla, df_local, columnas_hla, supported_antigens)
     antigens_observados = {
         antigen
         for antigen in df_local[columnas_hla].stack().dropna().unique()
@@ -148,11 +198,14 @@ def load_data_from_db(app: FastAPI):
     app.state.observed_antigens = antigens_observados
     app.state.supported_antigens = supported_antigens
     app.state.hla_columns = columnas_hla
+    app.state.hla_alerts = hla_alerts
     app.state.last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     app.state.total_donors = len(df_local)
     app.state.db_path = DB_PATH
 
     print("Base recargada. Donantes:", len(df_local))
+    for warning in hla_alerts["warnings"]:
+        print("ADVERTENCIA HLA:", warning)
 
 
 # =========================
@@ -252,10 +305,12 @@ def reload_db():
 
 @app.get("/health")
 def health():
+    hla_alerts = getattr(app.state, "hla_alerts", {})
     return {
         "status": "ok",
         "database": os.path.basename(getattr(app.state, "db_path", DB_PATH)),
         "total_donors": getattr(app.state, "total_donors", 0),
+        "hla_warning_count": len(hla_alerts.get("warnings", [])),
     }
 
 
@@ -264,6 +319,7 @@ def health():
 # =========================
 @app.get("/dataset_info")
 def dataset_info():
+    hla_alerts = getattr(app.state, "hla_alerts", {})
     return {
         "total_donors": getattr(app.state, "total_donors", 0),
         "last_update": getattr(app.state, "last_update", "N/A"),
@@ -271,6 +327,8 @@ def dataset_info():
         "hla_columns": getattr(app.state, "hla_columns", []),
         "valid_antigen_count": len(getattr(app.state, "observed_antigens", set())),
         "supported_antigen_count": len(getattr(app.state, "supported_antigens", set())),
+        "hla_warning_count": len(hla_alerts.get("warnings", [])),
+        "hla_warnings": hla_alerts.get("warnings", []),
     }
 
 
@@ -278,12 +336,17 @@ def dataset_info():
 def reference_data():
     observed_antigens = getattr(app.state, "observed_antigens", set())
     supported_antigens = getattr(app.state, "supported_antigens", set())
+    hla_alerts = getattr(app.state, "hla_alerts", {})
     return {
         "hla_columns": getattr(app.state, "hla_columns", []),
         "observed_antigens": sorted(observed_antigens),
         "observed_antigen_count": len(observed_antigens),
         "supported_antigens": sorted(supported_antigens),
         "supported_antigen_count": len(supported_antigens),
+        "unsupported_observed_antigens": hla_alerts.get("unsupported_observed_antigens", []),
+        "normalized_hla_value_count": hla_alerts.get("normalized_value_count", 0),
+        "normalized_hla_value_ratio": hla_alerts.get("normalized_value_ratio", 0.0),
+        "hla_warnings": hla_alerts.get("warnings", []),
         "abo_groups": sorted(VALID_ABO_GROUPS),
         "modes": sorted(VALID_MODES),
         "validation_rule": "Validated against data/hla_validation.csv",

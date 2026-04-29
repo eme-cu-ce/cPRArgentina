@@ -1,6 +1,7 @@
 import os
 import sys
 
+import pandas as pd
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from main import (
     InputData,
     app,
+    build_hla_alerts,
     calc_cpra,
     dataset_info,
     get_hla_columns,
@@ -134,6 +136,32 @@ def test_normalize_hla_value_respeta_formato_ya_normalizado_y_homocigosis():
     assert normalize_hla_value("A1", "A2") == "A2"
     assert normalize_hla_value("DRB1_1", "DR1404") == "DR1404"
     assert normalize_hla_value("DQB1_1", "-") == "-"
+
+
+def test_build_hla_alerts_detecta_normalizaciones_y_antigenos_fuera_de_catalogo():
+    df_raw = pd.DataFrame(
+        {
+            "A1": ["2", "11"],
+            "B1": ["44", "999"],
+        }
+    )
+    df_normalized = pd.DataFrame(
+        {
+            "A1": ["A2", "A11"],
+            "B1": ["B44", "B999"],
+        }
+    )
+
+    alerts = build_hla_alerts(
+        df_raw=df_raw,
+        df_normalized=df_normalized,
+        columnas_hla=["A1", "B1"],
+        supported_antigens={"A2", "A11", "B44"},
+    )
+
+    assert alerts["normalized_value_count"] == 4
+    assert alerts["unsupported_observed_antigens"] == ["B999"]
+    assert len(alerts["warnings"]) == 2
 
 
 def test_antigeno_valido_aunque_no_aparezca_en_la_base():
