@@ -15,6 +15,7 @@ from main import (
     is_supported_antigen,
     load_supported_antigens,
     load_data_from_db,
+    normalize_hla_value,
     reference_data,
 )
 
@@ -120,6 +121,19 @@ def test_get_hla_columns_devuelve_columnas_esperadas():
     ]
 
     assert get_hla_columns(columns) == ["A1", "A2", "B1", "DQB1_1"]
+
+
+def test_normalize_hla_value_agrega_prefijo_y_quita_ceros_a_la_izquierda():
+    assert normalize_hla_value("A1", "02") == "A2"
+    assert normalize_hla_value("B1", "044") == "B44"
+    assert normalize_hla_value("DRB1_1", "04") == "DR4"
+    assert normalize_hla_value("DQB1_1", "07") == "DQ7"
+
+
+def test_normalize_hla_value_respeta_formato_ya_normalizado_y_homocigosis():
+    assert normalize_hla_value("A1", "A2") == "A2"
+    assert normalize_hla_value("DRB1_1", "DR1404") == "DR1404"
+    assert normalize_hla_value("DQB1_1", "-") == "-"
 
 
 def test_antigeno_valido_aunque_no_aparezca_en_la_base():

@@ -26,6 +26,16 @@ CORS_ORIGINS = [
 VALID_ABO_GROUPS = {"A", "B", "AB", "O"}
 VALID_MODES = {"freq", "filter"}
 HLA_COLS = ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
+HLA_VALUE_PREFIX = {
+    "A1": "A",
+    "A2": "A",
+    "B1": "B",
+    "B2": "B",
+    "DRB1_1": "DR",
+    "DRB1_2": "DR",
+    "DQB1_1": "DQ",
+    "DQB1_2": "DQ",
+}
 ABO_INCOMPATIBILITY = {
     "A": ["B", "AB"],
     "B": ["A", "AB"],
@@ -75,6 +85,35 @@ def is_supported_antigen(antigen: str, supported_antigens: set[str]) -> bool:
     return antigen in supported_antigens
 
 
+def normalize_hla_value(column: str, value: str) -> str:
+    value = str(value).strip().upper()
+
+    if not value or value in {"NAN", "NONE"}:
+        return ""
+
+    if value == "-":
+        return value
+
+    prefix = HLA_VALUE_PREFIX.get(column)
+    if not prefix:
+        return value
+
+    normalized = value.replace("*", "").replace(" ", "")
+    if normalized.startswith(prefix):
+        suffix = normalized[len(prefix):]
+    else:
+        suffix = normalized
+
+    suffix = suffix.lstrip("0") or "0"
+    return f"{prefix}{suffix}"
+
+
+def normalize_hla_columns(df_local: pd.DataFrame, columnas_hla: list[str]) -> pd.DataFrame:
+    for column in columnas_hla:
+        df_local[column] = df_local[column].apply(lambda value: normalize_hla_value(column, value))
+    return df_local
+
+
 # =========================
 # Funcion reutilizable de carga
 # =========================
@@ -97,6 +136,7 @@ def load_data_from_db(app: FastAPI):
 
     frecuencias_local = df_local["abo"].value_counts(normalize=True).to_dict()
     columnas_hla = get_hla_columns(df_local.columns.tolist())
+    df_local = normalize_hla_columns(df_local, columnas_hla)
     antigens_observados = {
         antigen
         for antigen in df_local[columnas_hla].stack().dropna().unique()
