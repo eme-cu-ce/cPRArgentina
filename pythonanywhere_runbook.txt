@@ -50,7 +50,7 @@ https://cprargentina.pythonanywhere.com/health
 Resultado esperado:
 - status = ok
 - database = cpra.db
-- total_donors = 211
+- total_donors = 4159
 
 
 4. Como entrar a PythonAnywhere
