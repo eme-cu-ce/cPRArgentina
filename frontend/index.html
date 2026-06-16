@@ -389,7 +389,7 @@
     <div class="hero">
       <div>
         <h1>cPRArgentina</h1>
-        <div class="hero-subtitle">Calculadora de PRA ajustada por ABO con base de donantes argentina.</div>
+        <div class="hero-subtitle">Calculadora de cPRA basada en incompatibilidad observada en donantes argentinos.</div>
       </div>
       <div class="hero-actions">
         <button class="ghost-button" type="button" onclick="abrirAyuda()">Ayuda</button>
@@ -408,6 +408,12 @@
           <div class="selection-row">
             <div>
               <label>Grupo sanguíneo</label>
+              <div class="method-options">
+                <div>
+                  <input type="checkbox" id="aboEnabled" checked>
+                  <label for="aboEnabled">Incluir compatibilidad ABO</label>
+                </div>
+              </div>
               <div class="abo-options">
                 <input type="radio" id="aboA" name="abo" value="A">
                 <label for="aboA">A</label>
@@ -423,19 +429,6 @@
               </div>
             </div>
 
-            <div>
-              <label>Método</label>
-              <div class="method-options">
-                <div>
-                  <input type="radio" id="modeFreq" name="mode" value="freq" checked>
-                  <label for="modeFreq">Probabilístico (freq)</label>
-                </div>
-                <div>
-                  <input type="radio" id="modeFilter" name="mode" value="filter">
-                  <label for="modeFilter">Empírico (filter)</label>
-                </div>
-              </div>
-            </div>
           </div>
 
           <div class="actions">
@@ -472,8 +465,8 @@
         <button class="close-button" type="button" onclick="cerrarAyuda()">&times;</button>
       </div>
       <p><strong>1.</strong> Escriba uno o mas antígenos no deseados, separados por espacio o coma.</p>
-      <p><strong>2.</strong> Seleccione el grupo sanguíneo ABO.</p>
-      <p><strong>3.</strong> Elija el método de cálculo si quiere comparar enfoques.</p>
+      <p><strong>2.</strong> Seleccione el grupo sanguíneo ABO si quiere incluir compatibilidad ABO en el cálculo.</p>
+      <p><strong>3.</strong> Active o desactive la compatibilidad ABO según el escenario que quiera evaluar.</p>
       <p><strong>4.</strong> El resultado se actualiza automáticamente cuando cambian los datos.</p>
       <p><strong>Nota:</strong> Esta herramienta es un prototipo en validación.</p>
     </div>
@@ -488,12 +481,12 @@
       const antigenInput = document.getElementById("antigenos").value;
       const antigenos = antigenInput.split(/[\s,]+/).filter(item => item.trim() !== "");
       const aboRadio = document.querySelector("input[name='abo']:checked");
-      const modeRadio = document.querySelector("input[name='mode']:checked");
+      const aboEnabled = document.getElementById("aboEnabled").checked;
 
       return {
         antigenos,
         abo: aboRadio ? aboRadio.value : null,
-        mode: modeRadio ? modeRadio.value : "freq"
+        abo_enabled: aboEnabled
       };
     }
 
@@ -510,6 +503,16 @@
       if (!event || event.target.id === "help-modal") {
         document.getElementById("help-modal").classList.remove("open");
       }
+    }
+
+    function syncAboInputs() {
+      const aboEnabled = document.getElementById("aboEnabled").checked;
+      document.querySelectorAll("input[name='abo']").forEach(radio => {
+        radio.disabled = !aboEnabled;
+        if (!aboEnabled) {
+          radio.checked = false;
+        }
+      });
     }
 
     async function cargarInfoDataset() {
@@ -530,13 +533,13 @@
       const payload = getCurrentPayload();
       const resultadoDiv = document.getElementById("resultado");
 
-      if (payload.antigenos.length === 0 && !payload.abo) {
+      if (payload.antigenos.length === 0 && (!payload.abo_enabled || !payload.abo)) {
         lastSubmittedKey = "";
         renderPlaceholder("Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.");
         return;
       }
 
-      if (payload.antigenos.length === 0 || !payload.abo) {
+      if (payload.antigenos.length === 0 || (payload.abo_enabled && !payload.abo)) {
         resultadoDiv.innerHTML =
           "<div class='resultado-error'>Ingrese al menos un antígeno y seleccione un grupo sanguíneo.</div>";
         return;
@@ -568,7 +571,7 @@
           resultadoDiv.innerHTML =
             "<div><div class='resultado-numero'>" + data.cPRA.toFixed(1) + "%</div>" +
             "<div class='resultado-meta'>" +
-            "Metodo utilizado: " + data.mode_used.toLowerCase() + "<br>" +
+            "Compatibilidad ABO: " + (data.abo_enabled ? "incluida" : "no incluida") + "<br>" +
             "Actualizacion de base: " + data.last_update +
             "</div></div>";
         } else {
@@ -592,8 +595,9 @@
 
     function limpiar() {
       document.getElementById("antigenos").value = "";
+      document.getElementById("aboEnabled").checked = true;
       document.querySelectorAll("input[name='abo']").forEach(radio => radio.checked = false);
-      document.getElementById("modeFreq").checked = true;
+      syncAboInputs();
       lastSubmittedKey = "";
       renderPlaceholder("Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.");
     }
@@ -603,8 +607,12 @@
       renderPlaceholder("Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.");
 
       document.getElementById("antigenos").addEventListener("input", programarCalculo);
+      document.getElementById("aboEnabled").addEventListener("change", function () {
+        syncAboInputs();
+        programarCalculo();
+      });
       document.querySelectorAll("input[name='abo']").forEach(radio => radio.addEventListener("change", programarCalculo));
-      document.querySelectorAll("input[name='mode']").forEach(radio => radio.addEventListener("change", programarCalculo));
+      syncAboInputs();
       document.addEventListener("keydown", function (event) {
         if (event.key === "Escape") {
           cerrarAyuda();

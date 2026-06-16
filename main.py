@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 import os
 import sqlite3
 
@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from cpra_logic import calc_cpra_filter, build_hla_mask, get_abo_incompatibles
 from init_demo_db import create_demo_db
 
 # Base por defecto: demo
@@ -24,7 +25,6 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 VALID_ABO_GROUPS = {"A", "B", "AB", "O"}
-VALID_MODES = {"freq", "filter"}
 HLA_COLS = ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
 HLA_VALUE_PREFIX = {
     "A1": "A",
@@ -35,12 +35,6 @@ HLA_VALUE_PREFIX = {
     "DRB1_2": "DR",
     "DQB1_1": "DQ",
     "DQB1_2": "DQ",
-}
-ABO_INCOMPATIBILITY = {
-    "A": ["B", "AB"],
-    "B": ["A", "AB"],
-    "O": ["A", "B", "AB"],
-    "AB": [],
 }
 
 # Ensure first-run startup does not fail when DB/table is missing.
@@ -236,8 +230,8 @@ app.add_middleware(
 # =========================
 class InputData(BaseModel):
     antigenos: list[str]
-    abo: Literal["A", "B", "AB", "O"]
-    mode: Literal["freq", "filter"] = "freq"
+    abo: Optional[Literal["A", "B", "AB", "O"]] = None
+    abo_enabled: bool = True
 
 
 # =========================
@@ -246,7 +240,6 @@ class InputData(BaseModel):
 @app.post("/calc_cpra")
 def calc_cpra(data: InputData):
     df_local: pd.DataFrame = getattr(app.state, "df", pd.DataFrame())
-    frecuencias_local = getattr(app.state, "frecuencias_abo", {})
     supported_antigens = getattr(app.state, "supported_antigens", set())
     columnas_hla = getattr(app.state, "hla_columns", [])
 
@@ -260,8 +253,8 @@ def calc_cpra(data: InputData):
         )
 
     antigenos = [a.strip().upper() for a in data.antigenos if a and a.strip()]
-    abo = data.abo.upper()
-    mode = data.mode.lower().strip()
+    abo_enabled = data.abo_enabled
+    abo = data.abo.upper() if data.abo else None
 
     if not antigenos:
         raise HTTPException(
@@ -269,27 +262,27 @@ def calc_cpra(data: InputData):
             detail="Debe enviar al menos un antigeno.",
         )
 
+    if abo_enabled and not abo:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe seleccionar un grupo sanguineo si la compatibilidad ABO esta activada.",
+        )
+
     invalid = [a for a in antigenos if not is_supported_antigen(a, supported_antigens)]
     if invalid:
         raise HTTPException(status_code=400, detail=f"Antigenos invalidos: {invalid}")
 
-    mask_hla = df_local[columnas_hla].isin(antigenos).any(axis=1)
-    cpra_hla = mask_hla.sum() / len(df_local)
-
-    abo_incompatibles = ABO_INCOMPATIBILITY[abo]
-    freq_abo_incomp = sum(frecuencias_local.get(g, 0) for g in abo_incompatibles)
-
-    if mode == "filter":
-        mask_abo = df_local["abo"].isin(abo_incompatibles)
-        mask_total = mask_hla | mask_abo
-        cpra_final = mask_total.sum() / len(df_local)
+    mask_hla = build_hla_mask(df_local, columnas_hla, antigenos)
+    if abo_enabled:
+        abo_incompatibles = get_abo_incompatibles(abo)
+        cpra_final = calc_cpra_filter(mask_hla, df_local, abo_incompatibles)
     else:
-        cpra_final = cpra_hla + ((1 - cpra_hla) * freq_abo_incomp)
+        cpra_final = mask_hla.sum() / len(df_local)
 
     return {
         "cPRA": round(cpra_final * 100, 1),
         "N_donors": len(df_local),
-        "mode_used": mode.upper(),
+        "abo_enabled": abo_enabled,
         "last_update": app.state.last_update,
     }
 
@@ -348,7 +341,6 @@ def reference_data():
         "normalized_hla_value_ratio": hla_alerts.get("normalized_value_ratio", 0.0),
         "hla_warnings": hla_alerts.get("warnings", []),
         "abo_groups": sorted(VALID_ABO_GROUPS),
-        "modes": sorted(VALID_MODES),
         "validation_rule": "Validated against data/hla_validation.csv",
     }
 

@@ -1,5 +1,6 @@
 import os
 import sys
+from pprint import pformat
 
 import pandas as pd
 from fastapi import HTTPException
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from cpra_logic import build_abo_mask
 from main import (
     InputData,
     app,
@@ -23,6 +25,56 @@ from main import (
 
 
 load_data_from_db(app)
+
+
+def run_original_filter_only_logic(antigenos: list[str], abo: str | None, abo_enabled: bool) -> dict:
+    df_local = app.state.df
+    columnas_hla = app.state.hla_columns
+    supported_antigens = app.state.supported_antigens
+
+    antigenos_normalizados = [a.strip().upper() for a in antigenos if a and a.strip()]
+    abo = abo.upper() if abo else None
+
+    invalid = [a for a in antigenos_normalizados if not is_supported_antigen(a, supported_antigens)]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Antigenos invalidos: {invalid}")
+
+    if abo_enabled and not abo:
+        raise HTTPException(
+            status_code=400,
+            detail="Debe seleccionar un grupo sanguineo si la compatibilidad ABO esta activada.",
+        )
+
+    mask_hla = df_local[columnas_hla].isin(antigenos_normalizados).any(axis=1)
+    if abo_enabled:
+        abo_incompatibles = {
+            "A": ["B", "AB"],
+            "B": ["A", "AB"],
+            "O": ["A", "B", "AB"],
+            "AB": [],
+        }[abo]
+        mask_abo = df_local["abo"].isin(abo_incompatibles)
+        mask_total = mask_hla | mask_abo
+        cpra_final = mask_total.sum() / len(df_local)
+    else:
+        cpra_final = mask_hla.sum() / len(df_local)
+
+    return {
+        "cPRA": round(cpra_final * 100, 1),
+        "N_donors": len(df_local),
+        "abo_enabled": abo_enabled,
+    }
+
+
+def print_comparison(name: str, inputs: dict, expected: dict, actual: dict):
+    print(
+        "\n" + "=" * 70 + "\n"
+        f"{name}\n"
+        f"inputs:\n{pformat(inputs)}\n"
+        f"expected:\n{pformat(expected)}\n"
+        f"actual:\n{pformat(actual)}\n"
+        + "=" * 70
+    )
 
 
 def test_cpra_valido():
@@ -66,18 +118,31 @@ def test_abo_invalido_rechazado():
     assert response.status_code == 422
 
 
-def test_mode_invalido_rechazado():
+def test_abo_enabled_invalido_rechazado_por_pydantic():
     with TestClient(app) as client:
         response = client.post(
             "/calc_cpra",
             json={
                 "antigenos": ["A2"],
                 "abo": "A",
-                "mode": "banana",
+                "abo_enabled": "banana",
             },
         )
 
     assert response.status_code == 422
+
+
+def test_abo_requerido_si_esta_activado():
+    with TestClient(app) as client:
+        response = client.post(
+            "/calc_cpra",
+            json={
+                "antigenos": ["A2"],
+                "abo_enabled": True,
+            },
+        )
+
+    assert response.status_code == 400
 
 
 def test_health_endpoint_responde_ok():
@@ -177,3 +242,55 @@ def test_antigeno_con_formato_invalido_se_rechaza():
         assert False, "Se esperaba HTTPException"
     except HTTPException as exc:
         assert exc.status_code == 400
+
+
+def test_build_abo_mask_matches_expected_groups():
+    df = pd.DataFrame({"abo": ["A", "B", "AB", "O"]})
+    mask = build_abo_mask(df, ["B", "AB"])
+    assert mask.tolist() == [False, True, True, False]
+
+
+def test_filter_only_equivalence_single_antigen_abo_on():
+    inputs = {"antigenos": ["A2"], "abo": "A", "abo_enabled": True}
+    expected = run_original_filter_only_logic(**inputs)
+    actual = calc_cpra(InputData(**inputs))
+    print_comparison("single_antigen_abo_on", inputs, expected, actual)
+    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+    assert expected["N_donors"] == actual["N_donors"]
+    assert expected["abo_enabled"] == actual["abo_enabled"]
+
+
+def test_filter_only_equivalence_multiple_antigens_abo_on():
+    inputs = {"antigenos": ["A2", "B44", "DR4"], "abo": "O", "abo_enabled": True}
+    expected = run_original_filter_only_logic(**inputs)
+    actual = calc_cpra(InputData(**inputs))
+    print_comparison("multiple_antigens_abo_on", inputs, expected, actual)
+    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+    assert expected["N_donors"] == actual["N_donors"]
+    assert expected["abo_enabled"] == actual["abo_enabled"]
+
+
+def test_filter_only_equivalence_ab_recipient_no_abo_incompatibility():
+    inputs = {"antigenos": ["B76"], "abo": "AB", "abo_enabled": True}
+    expected = run_original_filter_only_logic(**inputs)
+    actual = calc_cpra(InputData(**inputs))
+    print_comparison("ab_recipient_abo_on", inputs, expected, actual)
+    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+
+
+def test_filter_only_equivalence_highly_incompatible_profile():
+    inputs = {"antigenos": ["A2", "A11", "B44", "B35", "DR4", "DQ7"], "abo": "O", "abo_enabled": True}
+    expected = run_original_filter_only_logic(**inputs)
+    actual = calc_cpra(InputData(**inputs))
+    print_comparison("highly_incompatible_abo_on", inputs, expected, actual)
+    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+
+
+def test_filter_only_equivalence_hla_only_abo_off():
+    inputs = {"antigenos": ["A2", "B44"], "abo": None, "abo_enabled": False}
+    expected = run_original_filter_only_logic(**inputs)
+    actual = calc_cpra(InputData(**inputs))
+    print_comparison("hla_only_abo_off", inputs, expected, actual)
+    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+    assert expected["N_donors"] == actual["N_donors"]
+    assert expected["abo_enabled"] == actual["abo_enabled"]
