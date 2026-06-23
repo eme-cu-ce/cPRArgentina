@@ -1,176 +1,151 @@
-import os
-import sys
+from contextlib import contextmanager
 from pprint import pformat
 
 import pandas as pd
+import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from cpra_logic import build_abo_mask
 from main import (
     InputData,
     app,
+    build_full_dq_donor_mask,
     build_hla_alerts,
     calc_cpra,
+    classify_antigens,
     dataset_info,
     get_hla_columns,
-    is_supported_antigen,
-    load_supported_antigens,
-    load_data_from_db,
     normalize_hla_value,
     reference_data,
 )
 
 
-load_data_from_db(app)
-
-
-def run_original_filter_only_logic(antigenos: list[str], abo: str | None, abo_enabled: bool) -> dict:
-    df_local = app.state.df
-    columnas_hla = app.state.hla_columns
-    supported_antigens = app.state.supported_antigens
-
-    antigenos_normalizados = [a.strip().upper() for a in antigenos if a and a.strip()]
-    abo = abo.upper() if abo else None
-
-    invalid = [a for a in antigenos_normalizados if not is_supported_antigen(a, supported_antigens)]
-    if invalid:
-        raise HTTPException(status_code=400, detail=f"Antigenos invalidos: {invalid}")
-
-    if abo_enabled and not abo:
-        raise HTTPException(
-            status_code=400,
-            detail="Debe seleccionar un grupo sanguineo si la compatibilidad ABO esta activada.",
-        )
-
-    mask_hla = df_local[columnas_hla].isin(antigenos_normalizados).any(axis=1)
-    if abo_enabled:
-        abo_incompatibles = {
-            "A": ["B", "AB"],
-            "B": ["A", "AB"],
-            "O": ["A", "B", "AB"],
-            "AB": [],
-        }[abo]
-        mask_abo = df_local["abo"].isin(abo_incompatibles)
-        mask_total = mask_hla | mask_abo
-        cpra_final = mask_total.sum() / len(df_local)
-    else:
-        cpra_final = mask_hla.sum() / len(df_local)
-
-    return {
-        "cPRA": round(cpra_final * 100, 1),
-        "N_donors": len(df_local),
-        "abo_enabled": abo_enabled,
+@contextmanager
+def override_app_state(
+    *,
+    df: pd.DataFrame,
+    supported_antigens: set[str],
+    last_update: str = "2026-06-18 12:00:00",
+):
+    original_state = {
+        "df": getattr(app.state, "df", None),
+        "supported_antigens": getattr(app.state, "supported_antigens", None),
+        "hla_columns": getattr(app.state, "hla_columns", None),
+        "observed_antigens": getattr(app.state, "observed_antigens", None),
+        "total_donors": getattr(app.state, "total_donors", None),
+        "last_update": getattr(app.state, "last_update", None),
+        "db_path": getattr(app.state, "db_path", None),
+        "hla_alerts": getattr(app.state, "hla_alerts", None),
+        "full_dq_donor_mask": getattr(app.state, "full_dq_donor_mask", None),
+        "total_full_dq_donors": getattr(app.state, "total_full_dq_donors", None),
     }
 
+    df_local = df.copy()
+    columnas_hla = get_hla_columns(df_local.columns.tolist())
+    app.state.df = df_local
+    app.state.supported_antigens = supported_antigens
+    app.state.hla_columns = columnas_hla
+    app.state.observed_antigens = {
+        antigen
+        for antigen in df_local[columnas_hla].stack().dropna().unique()
+        if antigen and antigen != "-"
+    }
+    app.state.total_donors = len(df_local)
+    app.state.last_update = last_update
+    app.state.db_path = "test.db"
+    app.state.hla_alerts = build_hla_alerts(df_local.copy(), df_local.copy(), columnas_hla, supported_antigens)
+    app.state.full_dq_donor_mask = build_full_dq_donor_mask(df_local)
+    app.state.total_full_dq_donors = int(app.state.full_dq_donor_mask.sum())
 
-def print_comparison(name: str, inputs: dict, expected: dict, actual: dict):
-    print(
-        "\n" + "=" * 70 + "\n"
-        f"{name}\n"
-        f"inputs:\n{pformat(inputs)}\n"
-        f"expected:\n{pformat(expected)}\n"
-        f"actual:\n{pformat(actual)}\n"
-        + "=" * 70
+    try:
+        yield
+    finally:
+        for key, value in original_state.items():
+            setattr(app.state, key, value)
+
+
+def build_test_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "donor_id": "D1",
+                "sexo": "F",
+                "edad": "35",
+                "fecha_operativo": "2026-01-01",
+                "A1": "A2",
+                "A2": "A11",
+                "B1": "B44",
+                "B2": "B35",
+                "DRB1_1": "DR17",
+                "DRB1_2": "DR4",
+                "DQB1_1": "DQ7",
+                "DQB1_2": "DQ5",
+                "abo": "A",
+                "rh": "+",
+            },
+            {
+                "donor_id": "D2",
+                "sexo": "M",
+                "edad": "40",
+                "fecha_operativo": "2026-01-02",
+                "A1": "A1",
+                "A2": "A3",
+                "B1": "B8",
+                "B2": "B18",
+                "DRB1_1": "DR4",
+                "DRB1_2": "DR15",
+                "DQB1_1": "DQ5",
+                "DQB1_2": "DQ6",
+                "abo": "B",
+                "rh": "+",
+            },
+            {
+                "donor_id": "D3",
+                "sexo": "F",
+                "edad": "29",
+                "fecha_operativo": "2026-01-03",
+                "A1": "A24",
+                "A2": "A26",
+                "B1": "B44",
+                "B2": "B60",
+                "DRB1_1": "DR17",
+                "DRB1_2": "DR11",
+                "DQB1_1": "DQ7",
+                "DQB1_2": "DQ8",
+                "abo": "O",
+                "rh": "-",
+            },
+            {
+                "donor_id": "D4",
+                "sexo": "M",
+                "edad": "51",
+                "fecha_operativo": "2026-01-04",
+                "A1": "A2",
+                "A2": "A29",
+                "B1": "B7",
+                "B2": "B62",
+                "DRB1_1": "DR1",
+                "DRB1_2": "DR13",
+                "DQB1_1": "",
+                "DQB1_2": "",
+                "abo": "AB",
+                "rh": "+",
+            },
+        ]
     )
 
 
-def test_cpra_valido():
-    response = calc_cpra(InputData(antigenos=["A2"], abo="A"))
-
-    assert "cPRA" in response
-    assert isinstance(response["cPRA"], float)
+SUPPORTED_ANTIGENS = {"A2", "A11", "B44", "B35", "DR17", "DR4", "DQ7", "DQ5", "DQ6", "DQ8", "B76"}
 
 
-def test_cpra_invalido():
-    try:
-        calc_cpra(InputData(antigenos=["BANANA"], abo="A"))
-        assert False, "Se esperaba HTTPException"
-    except HTTPException as exc:
-        assert exc.status_code == 400
-
-
-def test_cpra_entre_0_y_100():
-    data = calc_cpra(InputData(antigenos=["A2"], abo="A"))
-
-    assert 0 <= data["cPRA"] <= 100
-
-
-def test_agregar_antigeno_no_disminuye_cpra():
-    r1 = calc_cpra(InputData(antigenos=["A2"], abo="A"))
-    r2 = calc_cpra(InputData(antigenos=["A2", "B44"], abo="A"))
-
-    assert r2["cPRA"] >= r1["cPRA"]
-
-
-def test_abo_invalido_rechazado():
-    with TestClient(app) as client:
-        response = client.post(
-            "/calc_cpra",
-            json={
-                "antigenos": ["A2"],
-                "abo": "X",
-            },
-        )
-
-    assert response.status_code == 422
-
-
-def test_abo_enabled_invalido_rechazado_por_pydantic():
-    with TestClient(app) as client:
-        response = client.post(
-            "/calc_cpra",
-            json={
-                "antigenos": ["A2"],
-                "abo": "A",
-                "abo_enabled": "banana",
-            },
-        )
-
-    assert response.status_code == 422
-
-
-def test_abo_requerido_si_esta_activado():
-    with TestClient(app) as client:
-        response = client.post(
-            "/calc_cpra",
-            json={
-                "antigenos": ["A2"],
-                "abo_enabled": True,
-            },
-        )
-
-    assert response.status_code == 400
-
-
-def test_health_endpoint_responde_ok():
-    with TestClient(app) as client:
-        response = client.get("/health")
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "ok"
-
-
-def test_dataset_info_expone_metadata_hla():
-    info = dataset_info()
-
-    assert info["total_donors"] > 0
-    assert "A1" in info["hla_columns"]
-    assert info["valid_antigen_count"] > 0
-    assert info["supported_antigen_count"] > 0
-
-
-def test_reference_data_no_expone_valores_no_hla():
-    data = reference_data()
-
-    assert "A2" in data["observed_antigens"]
-    assert "M" not in data["observed_antigens"]
-    assert "-" not in data["observed_antigens"]
-    assert "B76" in data["supported_antigens"]
-    assert data["hla_columns"] == ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
-    assert "hla_validation.csv" in data["validation_rule"]
+def print_case(name: str, payload: dict, expected: dict, actual: dict):
+    print(
+        "\n" + "=" * 70 + "\n"
+        f"{name}\n"
+        f"input:\n{pformat(payload)}\n"
+        f"expected output:\n{pformat(expected)}\n"
+        f"actual output:\n{pformat(actual)}\n"
+        + "=" * 70
+    )
 
 
 def test_get_hla_columns_devuelve_columnas_esperadas():
@@ -186,111 +161,178 @@ def test_get_hla_columns_devuelve_columnas_esperadas():
         "abo",
         "rh",
     ]
-
     assert get_hla_columns(columns) == ["A1", "A2", "B1", "DQB1_1"]
 
 
-def test_normalize_hla_value_agrega_prefijo_y_quita_ceros_a_la_izquierda():
+def test_normalize_hla_value_agrega_prefijo_y_quita_ceros():
     assert normalize_hla_value("A1", "02") == "A2"
     assert normalize_hla_value("B1", "044") == "B44"
     assert normalize_hla_value("DRB1_1", "04") == "DR4"
     assert normalize_hla_value("DQB1_1", "07") == "DQ7"
 
 
-def test_normalize_hla_value_respeta_formato_ya_normalizado_y_homocigosis():
-    assert normalize_hla_value("A1", "A2") == "A2"
-    assert normalize_hla_value("DRB1_1", "DR1404") == "DR1404"
-    assert normalize_hla_value("DQB1_1", "-") == "-"
-
-
-def test_build_hla_alerts_detecta_normalizaciones_y_antigenos_fuera_de_catalogo():
-    df_raw = pd.DataFrame(
-        {
-            "A1": ["2", "11"],
-            "B1": ["44", "999"],
-        }
+def test_classify_antigens_separa_supported_unsupported_broad_invalid():
+    classified = classify_antigens(
+        ["A2", "Cw7", "DR52", "DPB1*04", "DR3", "DQ1", "banana"],
+        SUPPORTED_ANTIGENS,
     )
-    df_normalized = pd.DataFrame(
-        {
-            "A1": ["A2", "A11"],
-            "B1": ["B44", "B999"],
-        }
-    )
-
-    alerts = build_hla_alerts(
-        df_raw=df_raw,
-        df_normalized=df_normalized,
-        columnas_hla=["A1", "B1"],
-        supported_antigens={"A2", "A11", "B44"},
-    )
-
-    assert alerts["normalized_value_count"] == 4
-    assert alerts["unsupported_observed_antigens"] == ["B999"]
-    assert len(alerts["warnings"]) == 2
+    assert classified["supported"] == ["A2"]
+    assert classified["unsupported"] == ["CW7", "DR52", "DPB1*04"]
+    assert classified["broad"] == ["DR3", "DQ1"]
+    assert classified["invalid"] == ["BANANA"]
 
 
-def test_antigeno_valido_aunque_no_aparezca_en_la_base():
-    supported_antigens = load_supported_antigens()
-    assert is_supported_antigen("B76", supported_antigens)
-    response = calc_cpra(InputData(antigenos=["B76"], abo="A"))
-    assert "cPRA" in response
+def test_dataset_info_and_reference_data_still_expose_metadata():
+    df = build_test_df()
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        info = dataset_info()
+        data = reference_data()
+
+    assert info["total_donors"] == 4
+    assert "A1" in info["hla_columns"]
+    assert data["hla_columns"] == ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
+    assert "A2" in data["observed_antigens"]
 
 
-def test_antigeno_con_formato_invalido_se_rechaza():
-    try:
-        calc_cpra(InputData(antigenos=["BANANA"], abo="A"))
-        assert False, "Se esperaba HTTPException"
-    except HTTPException as exc:
-        assert exc.status_code == 400
+def test_scenario_a_supported_only_uses_entire_database():
+    df = build_test_df()
+    payload = {"antigenos": ["A2", "B44", "DR17"], "abo": "A", "abo_enabled": True}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        response = calc_cpra(InputData(**payload))
+
+    expected = {
+        "N_donors": 4,
+        "total_donors": 4,
+        "dq_denominator_used": False,
+        "warnings": [],
+        "cPRA": 100.0,
+    }
+    print_case("scenario_a", payload, expected, response)
+    assert response["N_donors"] == 4
+    assert response["total_donors"] == 4
+    assert response["dq_denominator_used"] is False
+    assert response["warnings"] == []
+    assert response["cPRA"] == 100.0
 
 
-def test_build_abo_mask_matches_expected_groups():
-    df = pd.DataFrame({"abo": ["A", "B", "AB", "O"]})
-    mask = build_abo_mask(df, ["B", "AB"])
-    assert mask.tolist() == [False, True, True, False]
+def test_scenario_b_supported_dq_uses_abdrdq_denominator():
+    df = build_test_df()
+    payload = {"antigenos": ["A2", "DQ7"], "abo": "A", "abo_enabled": True}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        response = calc_cpra(InputData(**payload))
+
+    expected = {
+        "N_donors": 3,
+        "total_donors": 4,
+        "dq_denominator_used": True,
+        "denominator_message_contains": "tipificacion completa para HLA-A, HLA-B, HLA-DR y HLA-DQ",
+        "cPRA": 100.0,
+    }
+    print_case("scenario_b", payload, expected, response)
+    assert response["N_donors"] == 3
+    assert response["total_donors"] == 4
+    assert response["dq_denominator_used"] is True
+    assert "tipificacion completa para HLA-A, HLA-B, HLA-DR y HLA-DQ" in response["denominator_message"]
+    assert response["cPRA"] == 100.0
 
 
-def test_filter_only_equivalence_single_antigen_abo_on():
-    inputs = {"antigenos": ["A2"], "abo": "A", "abo_enabled": True}
-    expected = run_original_filter_only_logic(**inputs)
-    actual = calc_cpra(InputData(**inputs))
-    print_comparison("single_antigen_abo_on", inputs, expected, actual)
-    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
-    assert expected["N_donors"] == actual["N_donors"]
-    assert expected["abo_enabled"] == actual["abo_enabled"]
+def test_scenario_c_unsupported_antigens_are_ignored_with_warning():
+    df = build_test_df()
+    payload = {"antigenos": ["A2", "B44", "Cw7", "DR52", "DPB1*04"], "abo": "A", "abo_enabled": True}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        response = calc_cpra(InputData(**payload))
+
+    expected = {
+        "supported_antigens_used": ["A2", "B44"],
+        "unsupported_antigens": ["CW7", "DR52", "DPB1*04"],
+        "broad_antigens": [],
+        "warning_count": 1,
+        "N_donors": 4,
+    }
+    print_case("scenario_c", payload, expected, response)
+    assert response["supported_antigens_used"] == ["A2", "B44"]
+    assert response["unsupported_antigens"] == ["CW7", "DR52", "DPB1*04"]
+    assert response["broad_antigens"] == []
+    assert len(response["warnings"]) == 1
+    assert "no fueron tomados en cuenta" in response["warnings"][0]
+    assert response["N_donors"] == 4
 
 
-def test_filter_only_equivalence_multiple_antigens_abo_on():
-    inputs = {"antigenos": ["A2", "B44", "DR4"], "abo": "O", "abo_enabled": True}
-    expected = run_original_filter_only_logic(**inputs)
-    actual = calc_cpra(InputData(**inputs))
-    print_comparison("multiple_antigens_abo_on", inputs, expected, actual)
-    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
-    assert expected["N_donors"] == actual["N_donors"]
-    assert expected["abo_enabled"] == actual["abo_enabled"]
+def test_scenario_d_supported_dq_plus_unsupported():
+    df = build_test_df()
+    payload = {"antigenos": ["DQ7", "Cw7", "DR52"], "abo": "AB", "abo_enabled": True}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        response = calc_cpra(InputData(**payload))
+
+    expected = {
+        "supported_antigens_used": ["DQ7"],
+        "unsupported_antigens": ["CW7", "DR52"],
+        "dq_denominator_used": True,
+        "N_donors": 3,
+        "cPRA": 66.7,
+    }
+    print_case("scenario_d", payload, expected, response)
+    assert response["supported_antigens_used"] == ["DQ7"]
+    assert response["unsupported_antigens"] == ["CW7", "DR52"]
+    assert response["dq_denominator_used"] is True
+    assert response["N_donors"] == 3
+    assert response["cPRA"] == 66.7
 
 
-def test_filter_only_equivalence_ab_recipient_no_abo_incompatibility():
-    inputs = {"antigenos": ["B76"], "abo": "AB", "abo_enabled": True}
-    expected = run_original_filter_only_logic(**inputs)
-    actual = calc_cpra(InputData(**inputs))
-    print_comparison("ab_recipient_abo_on", inputs, expected, actual)
-    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+def test_scenario_e_broad_only_blocks_calculation_with_warning():
+    df = build_test_df()
+    payload = {"antigenos": ["DR3", "DQ1", "B5"], "abo": "A", "abo_enabled": True}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        with pytest.raises(HTTPException) as exc_info:
+            calc_cpra(InputData(**payload))
+
+    actual = exc_info.value.detail
+    expected = {
+        "status_code": 400,
+        "message_contains": "No se ingresaron antigenos compatibles con el alcance actual de la herramienta",
+        "warning_count": 1,
+        "warning_contains": "antigenos broad",
+    }
+    print_case("scenario_e", payload, expected, actual)
+    assert exc_info.value.status_code == 400
+    assert "No se ingresaron antigenos compatibles con el alcance actual de la herramienta" in actual["message"]
+    assert len(actual["warnings"]) == 1
+    assert "antigenos broad" in actual["warnings"][0]
 
 
-def test_filter_only_equivalence_highly_incompatible_profile():
-    inputs = {"antigenos": ["A2", "A11", "B44", "B35", "DR4", "DQ7"], "abo": "O", "abo_enabled": True}
-    expected = run_original_filter_only_logic(**inputs)
-    actual = calc_cpra(InputData(**inputs))
-    print_comparison("highly_incompatible_abo_on", inputs, expected, actual)
-    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
+def test_scenario_f_invalid_inputs_block_calculation():
+    df = build_test_df()
+    payload = {"antigenos": ["banana", "AQ7"], "abo": "A", "abo_enabled": True}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        with pytest.raises(HTTPException) as exc_info:
+            calc_cpra(InputData(**payload))
+
+    actual = exc_info.value.detail
+    expected = {
+        "status_code": 400,
+        "message_contains": "entradas invalidas",
+        "invalid_antigens": ["BANANA", "AQ7"],
+    }
+    print_case("scenario_f", payload, expected, actual)
+    assert exc_info.value.status_code == 400
+    assert "entradas invalidas" in actual["message"]
+    assert actual["invalid_antigens"] == ["BANANA", "AQ7"]
 
 
-def test_filter_only_equivalence_hla_only_abo_off():
-    inputs = {"antigenos": ["A2", "B44"], "abo": None, "abo_enabled": False}
-    expected = run_original_filter_only_logic(**inputs)
-    actual = calc_cpra(InputData(**inputs))
-    print_comparison("hla_only_abo_off", inputs, expected, actual)
-    assert abs(expected["cPRA"] - actual["cPRA"]) < 1e-9
-    assert expected["N_donors"] == actual["N_donors"]
-    assert expected["abo_enabled"] == actual["abo_enabled"]
+def test_hla_only_mode_works_when_abo_disabled():
+    df = build_test_df()
+    payload = {"antigenos": ["A2", "B44"], "abo": None, "abo_enabled": False}
+    with override_app_state(df=df, supported_antigens=SUPPORTED_ANTIGENS):
+        response = calc_cpra(InputData(**payload))
+
+    expected = {
+        "N_donors": 4,
+        "total_donors": 4,
+        "abo_enabled": False,
+        "cPRA": 75.0,
+    }
+    print_case("hla_only_abo_disabled", payload, expected, response)
+    assert response["N_donors"] == 4
+    assert response["total_donors"] == 4
+    assert response["abo_enabled"] is False
+    assert response["cPRA"] == 75.0

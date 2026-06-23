@@ -113,8 +113,9 @@
       position: relative;
       display: grid;
       grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
-      gap: 16px;
+      gap: 18px;
       z-index: 1;
+      align-items: start;
     }
 
     .panel {
@@ -135,7 +136,17 @@
 
     .grid {
       display: grid;
-      gap: 12px;
+      gap: 18px;
+    }
+
+    .input-panel .grid {
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    .field-stack {
+      display: grid;
+      gap: 8px;
     }
 
     label {
@@ -161,16 +172,33 @@
       line-height: 1.45;
     }
 
-    .selection-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+    .abo-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 12px;
+    }
+
+    .abo-label {
+      margin: 0;
+      font-size: 0.92rem;
+      font-weight: bold;
+      color: var(--ink);
+    }
+
+    .abo-toggle-group {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-left: auto;
     }
 
     .abo-options {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
+      margin-top: 2px;
     }
 
     .abo-options input[type="radio"] {
@@ -216,24 +244,11 @@
       font-weight: normal;
     }
 
-    .switch-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 14px 16px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.75);
-      margin-bottom: 10px;
-    }
-
     .switch-label {
       margin: 0;
-      font-size: 0.95rem;
+      font-size: 0.84rem;
       font-weight: 500;
       color: var(--ink);
-      flex: 1;
       white-space: nowrap;
     }
 
@@ -291,13 +306,23 @@
 
     .actions {
       display: flex;
-      justify-content: end;
-      margin-top: 4px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .action-note {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+      max-width: 34ch;
+      white-space: nowrap;
     }
 
     .result-card {
       display: grid;
-      gap: 12px;
+      gap: 14px;
       height: 100%;
     }
 
@@ -307,9 +332,9 @@
         linear-gradient(180deg, rgba(111, 183, 222, 0.1), rgba(255, 255, 255, 0.85)),
         #f7fbfd;
       padding: 20px;
-      min-height: 158px;
+      min-height: 210px;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
     }
 
     .resultado-numero {
@@ -320,10 +345,67 @@
     }
 
     .resultado-meta {
-      margin-top: 10px;
+      margin-top: 12px;
       font-size: 0.9rem;
-      line-height: 1.55;
+      line-height: 1.6;
       color: var(--muted);
+      display: grid;
+      gap: 8px;
+    }
+
+    .resultado-principal {
+      width: 100%;
+      display: grid;
+      gap: 10px;
+    }
+
+    .resultado-linea {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .resultado-etiqueta {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .info-mark {
+      color: var(--flag-blue-deep);
+      font-size: 0.8rem;
+      line-height: 1;
+    }
+
+    .resultado-note {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      margin-left: 0;
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.6;
+      white-space: normal;
+      word-break: normal;
+      overflow-wrap: break-word;
+    }
+
+    .resultado-note-dq {
+      padding-top: 4px;
+    }
+
+    .resultado-note-empty {
+      display: none;
+    }
+
+    .footer-note {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.55;
+      text-align: center;
     }
 
     .placeholder {
@@ -343,21 +425,14 @@
       width: 100%;
     }
 
-    .meta-card {
-      border-top: 1px solid var(--border);
-      padding-top: 12px;
-      color: var(--muted);
-      font-size: 0.8rem;
-      line-height: 1.5;
-    }
-
-    .footer-note {
-      margin-top: auto;
-      border-top: 1px solid var(--border);
-      padding-top: 12px;
-      color: var(--muted);
-      font-size: 0.76rem;
-      line-height: 1.55;
+    .resultado-warning {
+      margin-top: 2px;
+      color: #7a4d0b;
+      background: #fff3dd;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 0.84rem;
+      line-height: 1.45;
     }
 
     .page-signoff {
@@ -444,10 +519,6 @@
     }
 
     @media (max-width: 560px) {
-      .selection-row {
-        grid-template-columns: 1fr;
-      }
-
       .abo-options {
         grid-template-columns: repeat(2, 1fr);
       }
@@ -459,6 +530,21 @@
       .ghost-button,
       .solid-button {
         width: 100%;
+      }
+
+      .actions {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .action-note {
+        max-width: none;
+        white-space: normal;
+      }
+
+      .resultado-note {
+        margin-left: 0;
+        max-width: none;
       }
     }
   </style>
@@ -477,45 +563,45 @@
     </div>
 
     <div class="layout">
-      <section class="panel">
+      <section class="panel input-panel">
         <div class="grid">
-          <div>
+          <div class="field-stack">
             <label for="antigenos">Antígenos no deseados</label>
             <input type="text" id="antigenos" placeholder="Ej: A2 B44 DR4">
             <div class="nota">Separe los antígenos con espacio o coma.</div>
           </div>
 
-          <div class="selection-row">
-            <div>
-              <label>Grupo sanguíneo</label>
-              <div class="switch-row">
+          <div class="field-stack">
+            <div class="abo-row">
+              <label class="abo-label">Grupo sanguíneo</label>
+              <div class="abo-toggle-group">
                 <label class="switch-label" id="aboToggleLabel" for="aboEnabled">Considerar compatibilidad ABO</label>
                 <label class="switch" aria-label="Compatibilidad ABO">
                   <input type="checkbox" id="aboEnabled" checked>
                   <span class="slider"></span>
                 </label>
               </div>
-              <div id="aboSection" class="abo-section">
-                <div class="abo-options">
-                  <input type="radio" id="aboA" name="abo" value="A">
-                  <label for="aboA">A</label>
+            </div>
+            <div id="aboSection" class="abo-section">
+              <div class="abo-options">
+                <input type="radio" id="aboA" name="abo" value="A">
+                <label for="aboA">A</label>
 
-                  <input type="radio" id="aboB" name="abo" value="B">
-                  <label for="aboB">B</label>
+                <input type="radio" id="aboB" name="abo" value="B">
+                <label for="aboB">B</label>
 
-                  <input type="radio" id="aboAB" name="abo" value="AB">
-                  <label for="aboAB">AB</label>
+                <input type="radio" id="aboAB" name="abo" value="AB">
+                <label for="aboAB">AB</label>
 
-                  <input type="radio" id="aboO" name="abo" value="O">
-                  <label for="aboO">O</label>
-                </div>
+                <input type="radio" id="aboO" name="abo" value="O">
+                <label for="aboO">O</label>
               </div>
             </div>
-
           </div>
 
           <div class="actions">
-            <button class="solid-button" id="clear" type="button" onclick="limpiar()">Limpiar</button>
+            <div class="action-note">El resultado se actualiza automáticamente cuando cambian los datos.</div>
+            <button class="ghost-button" id="clear" type="button" onclick="limpiar()">Limpiar</button>
           </div>
         </div>
       </section>
@@ -525,13 +611,9 @@
           <h2>Resultado</h2>
           <div class="result-box" id="resultado">
             <div class="placeholder">
-              Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.
+              Ingrese los antígenos no deseados para ver el resultado.
             </div>
           </div>
-        </div>
-
-        <div class="meta-card" id="dataset-info">
-          Cargando informacion de base...
         </div>
 
         <div class="footer-note">
@@ -539,7 +621,7 @@
         </div>
       </section>
     </div>
-    <div class="page-signoff">Industria Argentina 🇦🇷</div>
+    <div class="page-signoff">Industria argentina 🇦🇷</div>
   </div>
 
   <div class="modal-backdrop" id="help-modal" onclick="cerrarAyuda(event)">
@@ -548,11 +630,10 @@
         <h3 id="help-title">¿Cómo usar la calculadora?</h3>
         <button class="close-button" type="button" onclick="cerrarAyuda()">&times;</button>
       </div>
-      <p><strong>1.</strong> Pegue o escriba uno o más antígenos no deseados, separados por un espacio o coma.</p>
-      <p><strong>2.</strong> Active o desactive la compatibilidad ABO según el escenario que quiera evaluar.</p>
-      <p><strong>3.</strong> Si activa la compatibilidad ABO, deberá seleccionar el grupo sanguíneo correspondiente.</p>
-      <p><strong>4.</strong> El resultado se actualiza automáticamente cuando cambian los datos.</p>
-      <p><strong>Nota:</strong> Esta herramienta es un prototipo en validación.</p>
+      <p><strong>1.</strong> Ingrese los antígenos HLA no deseados separados por espacio o coma.</p>
+      <p><strong>2.</strong> Seleccione el grupo sanguíneo.</p>
+      <p><strong>3.</strong> Si no desea considerar la compatibilidad ABO, desactívela.</p>
+      <p><strong>4.</strong> El resultado se calcula automáticamente a medida que se modifican los datos ingresados.</p>
     </div>
   </div>
 
@@ -577,6 +658,53 @@
     function renderPlaceholder(message) {
       document.getElementById("resultado").innerHTML =
         "<div class='placeholder'>" + message + "</div>";
+    }
+
+    function renderWarnings(warnings) {
+      if (!warnings || warnings.length === 0) {
+        return "";
+      }
+
+      return warnings
+        .map(warning => "<div class='resultado-warning'>" + warning + "</div>")
+        .join("");
+    }
+
+    function renderErrorMessage(payload) {
+      const message = typeof payload === "string"
+        ? payload
+        : (payload && payload.message) || "Error inesperado.";
+      const warnings = payload && payload.warnings ? payload.warnings : [];
+
+      document.getElementById("resultado").innerHTML =
+        "<div><div class='resultado-error'>" + message + "</div>" +
+        renderWarnings(warnings) +
+        "</div>";
+    }
+
+    function buildDenominatorLine(data) {
+      if (data.dq_denominator_used) {
+        return (
+          "<div>" +
+          "<div class='resultado-linea'>" +
+          "<span class='resultado-etiqueta'>Donantes evaluados:</span>" +
+          "<span>" + data.N_donors + " de " + data.total_donors + "</span>" +
+          "<span class='info-mark'>ⓘ</span>" +
+          "</div>" +
+          "<div class='resultado-note resultado-note-dq'>Al incluir antígenos DQ, el cálculo se restringe a donantes con<br>tipificación completa para HLA-A, HLA-B, HLA-DR y HLA-DQ.</div>" +
+          "</div>"
+        );
+      }
+
+      return (
+        "<div>" +
+        "<div class='resultado-linea'>" +
+        "<span class='resultado-etiqueta'>Donantes evaluados:</span>" +
+        "<span>" + data.total_donors + "</span>" +
+        "</div>" +
+        "<div class='resultado-note resultado-note-empty'></div>" +
+        "</div>"
+      );
     }
 
     function abrirAyuda() {
@@ -605,33 +733,18 @@
       });
     }
 
-    async function cargarInfoDataset() {
-      try {
-        const res = await fetch("/dataset_info");
-        const data = await res.json();
-
-        document.getElementById("dataset-info").innerHTML =
-          "Donantes en base: <b>" + data.total_donors + "</b><br>" +
-          "Ultima actualizacion: <b>" + data.last_update + "</b>";
-      } catch {
-        document.getElementById("dataset-info").innerText =
-          "No se pudo cargar informacion de base.";
-      }
-    }
-
     async function calcularAutomatico() {
       const payload = getCurrentPayload();
       const resultadoDiv = document.getElementById("resultado");
 
       if (payload.antigenos.length === 0 && (!payload.abo_enabled || !payload.abo)) {
         lastSubmittedKey = "";
-        renderPlaceholder("Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.");
+        renderPlaceholder("Ingrese los antígenos no deseados para ver el resultado.");
         return;
       }
 
       if (payload.antigenos.length === 0 || (payload.abo_enabled && !payload.abo)) {
-        resultadoDiv.innerHTML =
-          "<div class='resultado-error'>Ingrese al menos un antígeno y seleccione un grupo sanguíneo.</div>";
+        renderErrorMessage("Ingrese al menos un antígeno y seleccione un grupo sanguíneo.");
         return;
       }
 
@@ -659,22 +772,24 @@
 
         if (res.ok && data.cPRA !== undefined) {
           resultadoDiv.innerHTML =
-            "<div><div class='resultado-numero'>" + data.cPRA.toFixed(1) + "%</div>" +
+            "<div class='resultado-principal'>" +
+            "<div class='resultado-numero'>" + data.cPRA.toFixed(1) + "%</div>" +
             "<div class='resultado-meta'>" +
-            "Compatibilidad ABO: " + (data.abo_enabled ? "incluida" : "no incluida") + "<br>" +
-            "Actualizacion de base: " + data.last_update +
-            "</div></div>";
+            "<div class='resultado-linea'><span class='resultado-etiqueta'>Compatibilidad ABO:</span>" +
+            "<span>" + (data.abo_enabled ? "incluida" : "no incluida") + "</span></div>" +
+            buildDenominatorLine(data) +
+            "</div>" +
+            "<div>" + renderWarnings(data.warnings) + "</div>" +
+            "</div>";
         } else {
-          resultadoDiv.innerHTML =
-            "<div class='resultado-error'>" + (data.detail || "Error inesperado.") + "</div>";
+          renderErrorMessage(data.detail || data);
         }
       } catch {
         if (requestId !== activeRequestId) {
           return;
         }
 
-        resultadoDiv.innerHTML =
-          "<div class='resultado-error'>Error conectando con el servidor.</div>";
+        renderErrorMessage("Error conectando con el servidor.");
       }
     }
 
@@ -689,12 +804,11 @@
       document.querySelectorAll("input[name='abo']").forEach(radio => radio.checked = false);
       syncAboInputs();
       lastSubmittedKey = "";
-      renderPlaceholder("Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.");
+      renderPlaceholder("Ingrese los antígenos no deseados para ver el resultado.");
     }
 
     window.onload = function () {
-      cargarInfoDataset();
-      renderPlaceholder("Ingrese los antígenos y seleccione el grupo ABO para ver el resultado.");
+      renderPlaceholder("Ingrese los antígenos no deseados para ver el resultado.");
 
       document.getElementById("antigenos").addEventListener("input", programarCalculo);
       document.getElementById("aboEnabled").addEventListener("change", function () {

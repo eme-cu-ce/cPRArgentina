@@ -11,3 +11,5 @@ __pycache__/
 .pytest_cache/
 .vscode/
 .DS_Store
+resultados_cpra.csv 
+run_cohort.py 

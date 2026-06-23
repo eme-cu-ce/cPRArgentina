@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Literal, Optional
 import os
+import re
 import sqlite3
 
 import pandas as pd
@@ -26,6 +27,7 @@ CORS_ORIGINS = [
 ]
 VALID_ABO_GROUPS = {"A", "B", "AB", "O"}
 HLA_COLS = ["A1", "A2", "B1", "B2", "DRB1_1", "DRB1_2", "DQB1_1", "DQB1_2"]
+NOT_TYPED_VALUES = {"", "NAN", "NONE"}
 HLA_VALUE_PREFIX = {
     "A1": "A",
     "A2": "A",
@@ -35,6 +37,13 @@ HLA_VALUE_PREFIX = {
     "DRB1_2": "DR",
     "DQB1_1": "DQ",
     "DQB1_2": "DQ",
+}
+BROAD_ANTIGENS = {
+    "A9", "A10", "A19", "A28",
+    "B5", "B12", "B14", "B15", "B16", "B17", "B21", "B22", "B40", "B70",
+    "CW3",
+    "DQ1", "DQ3",
+    "DR2", "DR3", "DR5", "DR6",
 }
 
 # Ensure first-run startup does not fail when DB/table is missing.
@@ -77,6 +86,95 @@ def load_supported_antigens(validation_table_path: str = VALIDATION_TABLE_PATH) 
 
 def is_supported_antigen(antigen: str, supported_antigens: set[str]) -> bool:
     return antigen in supported_antigens
+
+
+def normalize_input_antigen(antigen: str) -> str:
+    return str(antigen).strip().upper().replace(" ", "")
+
+
+def is_broad_antigen(antigen: str) -> bool:
+    return antigen in BROAD_ANTIGENS
+
+
+def is_recognized_unsupported_antigen(antigen: str) -> bool:
+    antigen_no_star = antigen.replace("*", "")
+    if antigen_no_star in {"BW4", "BW6"}:
+        return True
+    if re.fullmatch(r"CW?\d+$", antigen_no_star):
+        return True
+    if antigen_no_star in {"DR51", "DR52", "DR53"}:
+        return True
+    if antigen_no_star.startswith("DQA"):
+        return True
+    if antigen_no_star == "DP" or antigen_no_star.startswith("DPA") or antigen_no_star.startswith("DPB"):
+        return True
+    if re.fullmatch(r"DP\d+$", antigen_no_star):
+        return True
+    return False
+
+
+def classify_antigens(raw_antigens: list[str], supported_antigens: set[str]) -> dict[str, list[str]]:
+    supported = []
+    unsupported = []
+    broad = []
+    invalid = []
+    seen = {"supported": set(), "unsupported": set(), "broad": set(), "invalid": set()}
+
+    for raw_antigen in raw_antigens:
+        antigen = normalize_input_antigen(raw_antigen)
+        if not antigen:
+            continue
+
+        if is_broad_antigen(antigen):
+            if antigen not in seen["broad"]:
+                broad.append(antigen)
+                seen["broad"].add(antigen)
+        elif is_recognized_unsupported_antigen(antigen):
+            if antigen not in seen["unsupported"]:
+                unsupported.append(antigen)
+                seen["unsupported"].add(antigen)
+        elif antigen in supported_antigens:
+            if antigen not in seen["supported"]:
+                supported.append(antigen)
+                seen["supported"].add(antigen)
+        else:
+            if antigen not in seen["invalid"]:
+                invalid.append(antigen)
+                seen["invalid"].add(antigen)
+
+    return {
+        "supported": supported,
+        "unsupported": unsupported,
+        "broad": broad,
+        "invalid": invalid,
+    }
+
+
+def build_warning_messages(unsupported: list[str], broad: list[str]) -> list[str]:
+    warnings = []
+    if unsupported:
+        warnings.append(
+            "Advertencia: los siguientes antigenos no fueron tomados en cuenta para el calculo: "
+            + ", ".join(unsupported)
+        )
+    if broad:
+        warnings.append(
+            "Advertencia: se detectaron antigenos broad ("
+            + ", ".join(broad)
+            + "). cPRArgentina utiliza exclusivamente antigenos split, por lo que estos antigenos no fueron considerados. Revise la tipificacion ingresada."
+        )
+    return warnings
+
+
+def build_full_dq_donor_mask(df_local: pd.DataFrame) -> pd.Series:
+    required_cols = [col for col in HLA_COLS if col in df_local.columns]
+    if not required_cols:
+        return pd.Series(False, index=df_local.index)
+
+    mask = pd.Series(True, index=df_local.index)
+    for column in required_cols:
+        mask &= ~df_local[column].isin(NOT_TYPED_VALUES)
+    return mask
 
 
 def normalize_hla_value(column: str, value: str) -> str:
@@ -180,6 +278,7 @@ def load_data_from_db(app: FastAPI):
     frecuencias_local = df_local["abo"].value_counts(normalize=True).to_dict()
     columnas_hla = get_hla_columns(df_local.columns.tolist())
     df_local = normalize_hla_columns(df_local, columnas_hla)
+    dq_typed_mask = build_full_dq_donor_mask(df_local)
     hla_alerts = build_hla_alerts(df_raw_hla, df_local, columnas_hla, supported_antigens)
     antigens_observados = {
         antigen
@@ -192,6 +291,8 @@ def load_data_from_db(app: FastAPI):
     app.state.observed_antigens = antigens_observados
     app.state.supported_antigens = supported_antigens
     app.state.hla_columns = columnas_hla
+    app.state.full_dq_donor_mask = dq_typed_mask
+    app.state.total_full_dq_donors = int(dq_typed_mask.sum())
     app.state.hla_alerts = hla_alerts
     app.state.last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     app.state.total_donors = len(df_local)
@@ -242,6 +343,7 @@ def calc_cpra(data: InputData):
     df_local: pd.DataFrame = getattr(app.state, "df", pd.DataFrame())
     supported_antigens = getattr(app.state, "supported_antigens", set())
     columnas_hla = getattr(app.state, "hla_columns", [])
+    dq_typed_mask: pd.Series = getattr(app.state, "full_dq_donor_mask", pd.Series(dtype=bool))
 
     if df_local.empty:
         return {"cPRA": 0.0}
@@ -252,11 +354,11 @@ def calc_cpra(data: InputData):
             detail="La base no contiene columnas HLA configuradas.",
         )
 
-    antigenos = [a.strip().upper() for a in data.antigenos if a and a.strip()]
+    raw_antigenos = [a for a in data.antigenos if a and str(a).strip()]
     abo_enabled = data.abo_enabled
     abo = data.abo.upper() if data.abo else None
 
-    if not antigenos:
+    if not raw_antigenos:
         raise HTTPException(
             status_code=400,
             detail="Debe enviar al menos un antigeno.",
@@ -268,21 +370,85 @@ def calc_cpra(data: InputData):
             detail="Debe seleccionar un grupo sanguineo si la compatibilidad ABO esta activada.",
         )
 
-    invalid = [a for a in antigenos if not is_supported_antigen(a, supported_antigens)]
-    if invalid:
-        raise HTTPException(status_code=400, detail=f"Antigenos invalidos: {invalid}")
+    classified = classify_antigens(raw_antigenos, supported_antigens)
+    antigenos = classified["supported"]
+    invalid = classified["invalid"]
+    unsupported = classified["unsupported"]
+    broad = classified["broad"]
+    warnings = build_warning_messages(unsupported, broad)
 
-    mask_hla = build_hla_mask(df_local, columnas_hla, antigenos)
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": (
+                    "Error: se detectaron entradas invalidas ("
+                    + ", ".join(invalid)
+                    + "). Revise los antigenos ingresados antes de continuar."
+                ),
+                "invalid_antigens": invalid,
+            },
+        )
+
+    if not antigenos:
+        if unsupported and not broad:
+            empty_scope_message = "Los antigenos ingresados no son contemplados por la herramienta."
+        else:
+            empty_scope_message = (
+                "No se ingresaron antigenos compatibles con el alcance actual de la herramienta. "
+                "Ingrese al menos un antigeno HLA-A, HLA-B, HLA-DR o HLA-DQ contemplado para realizar el calculo."
+            )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": empty_scope_message,
+                "warnings": warnings,
+                "unsupported_antigens": unsupported,
+                "broad_antigens": broad,
+            },
+        )
+
+    uses_dq_denominator = any(antigen.startswith("DQ") for antigen in antigenos)
+    total_donors = len(df_local)
+    if uses_dq_denominator:
+        df_effective = df_local[dq_typed_mask].copy()
+        denominator_message = (
+            "Como se ingreso al menos un antigeno DQ contemplado por la herramienta, "
+            "el calculo se realizo utilizando unicamente donantes con tipificacion completa "
+            "para HLA-A, HLA-B, HLA-DR y HLA-DQ."
+        )
+    else:
+        df_effective = df_local
+        denominator_message = None
+
+    effective_donors = len(df_effective)
+    if effective_donors == 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "No hay donantes evaluables para el criterio seleccionado.",
+                "warnings": warnings,
+            },
+        )
+
+    mask_hla = build_hla_mask(df_effective, columnas_hla, antigenos)
     if abo_enabled:
         abo_incompatibles = get_abo_incompatibles(abo)
-        cpra_final = calc_cpra_filter(mask_hla, df_local, abo_incompatibles)
+        cpra_final = calc_cpra_filter(mask_hla, df_effective, abo_incompatibles)
     else:
-        cpra_final = mask_hla.sum() / len(df_local)
+        cpra_final = mask_hla.sum() / len(df_effective)
 
     return {
         "cPRA": round(cpra_final * 100, 1),
-        "N_donors": len(df_local),
+        "N_donors": effective_donors,
+        "total_donors": total_donors,
         "abo_enabled": abo_enabled,
+        "supported_antigens_used": antigenos,
+        "unsupported_antigens": unsupported,
+        "broad_antigens": broad,
+        "warnings": warnings,
+        "dq_denominator_used": uses_dq_denominator,
+        "denominator_message": denominator_message,
         "last_update": app.state.last_update,
     }
 
