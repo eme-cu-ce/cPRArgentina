@@ -2,6 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 title: "cPRArgentina"
 version: "1.0.0"
+date-released: 2026-08-11
+doi: "10.5281/zenodo.21893434"
 authors:
   - family-names: "Quirno Costa"
     given-names: "Manuel"

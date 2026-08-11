@@ -1,5 +1,7 @@
 # cPRArgentina
 
+[![DOI](https://zenodo.org/badge/1075623076.svg)](https://doi.org/10.5281/zenodo.21893433)
+
 cPRArgentina is a web-based cPRA calculator built from HLA data derived from deceased donor records from Argentina. It estimates cPRA by directly comparing unacceptable HLA antigens against individual donors in the dataset rather than using population-frequency models. ABO compatibility can also be incorporated optionally, allowing HLA-only and HLA+ABO estimates to be examined separately.
 
 ## License
@@ -205,6 +207,20 @@ CSV columns:
 The 100 simulated profiles encoded in `scripts/run_cohort.py` were verified against Supplementary Table 2 of the manuscript. The current code reproduced all 100 HLA-only and HLA+ABO results used in the manuscript without discrepancies.
 
 Profiles containing supported HLA-DQ antigens use the DQ-typed donor subset as the denominator. For descriptive analysis, HLA-only cPRA was grouped as `Low` (`<30%`), `Intermediate` (`30-69%`), and `High` (`>=70%`). These strata were used only for descriptive analysis in the manuscript and are not intended as validated clinical thresholds.
+
+## Citation
+
+The version used in the manuscript is `cPRArgentina v1.0.0`.
+
+Version-specific DOI:
+
+- `10.5281/zenodo.21893434`
+
+Suggested citation:
+
+- Quirno Costa M. cPRArgentina (Version v1.0.0) [Computer software]. Zenodo. 2026. https://doi.org/10.5281/zenodo.21893434
+
+The Concept DOI `10.5281/zenodo.21893433` represents all versions and resolves to the latest release.
 
 ## PythonAnywhere deployment
 
