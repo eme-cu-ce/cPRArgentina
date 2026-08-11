@@ -24,6 +24,4 @@ def calc_cpra_filter(mask_hla, df, abo_incompatibles: list[str]) -> float:
     return mask_total.sum() / len(df)
 
 
-def calc_cpra_freq(cpra_hla: float, frecuencias_abo: dict, abo_incompatibles: list[str]) -> float:
-    freq_abo_incomp = sum(frecuencias_abo.get(g, 0) for g in abo_incompatibles)
-    return cpra_hla + ((1 - cpra_hla) * freq_abo_incomp)
+

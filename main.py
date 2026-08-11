@@ -12,10 +12,9 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from cpra_logic import calc_cpra_filter, build_hla_mask, get_abo_incompatibles
-from init_demo_db import create_demo_db
 
-# Base por defecto: demo
-DB_NAME = os.getenv("CPRA_DB", "cpra_demo.db")
+# Base por defecto: base real local
+DB_NAME = os.getenv("CPRA_DB", "cpra.db")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, DB_NAME)
 FRONTEND_PATH = os.path.join(BASE_DIR, "frontend", "index.html")
@@ -258,9 +257,6 @@ def build_hla_alerts(
 # =========================
 def load_data_from_db(app: FastAPI):
     """Cargar datos desde SQLite y actualizar app.state."""
-    if DB_NAME == "cpra_demo.db" and not os.path.exists(DB_PATH):
-        create_demo_db(DB_PATH)
-
     supported_antigens = load_supported_antigens()
 
     with sqlite3.connect(DB_PATH) as conn:
@@ -275,7 +271,6 @@ def load_data_from_db(app: FastAPI):
     if "abo" in df_local.columns:
         df_local["abo"] = df_local["abo"].replace({"0": "O"})
 
-    frecuencias_local = df_local["abo"].value_counts(normalize=True).to_dict()
     columnas_hla = get_hla_columns(df_local.columns.tolist())
     df_local = normalize_hla_columns(df_local, columnas_hla)
     dq_typed_mask = build_full_dq_donor_mask(df_local)
@@ -287,7 +282,6 @@ def load_data_from_db(app: FastAPI):
     }
 
     app.state.df = df_local
-    app.state.frecuencias_abo = frecuencias_local
     app.state.observed_antigens = antigens_observados
     app.state.supported_antigens = supported_antigens
     app.state.hla_columns = columnas_hla

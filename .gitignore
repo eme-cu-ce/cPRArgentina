@@ -5,11 +5,13 @@ main_mysql.py
 *.env
 *.bak
 *.pyc
+.coverage
 
 # Archivos de sistema
 __pycache__/
 .pytest_cache/
 .vscode/
 .DS_Store
-resultados_cpra.csv 
-run_cohort.py 
+venv/
+resultados_cpra.csv
+scripts/resultados_cpra.csv

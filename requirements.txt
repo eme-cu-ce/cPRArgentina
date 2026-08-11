@@ -2,4 +2,4 @@ fastapi
 uvicorn
 pandas
 pytest
-httpx
+pytest-cov
